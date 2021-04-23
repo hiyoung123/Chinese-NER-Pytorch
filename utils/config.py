@@ -56,3 +56,7 @@ class Config:
             if ',' in v:
                 v = [int(x) for x in v.split(',')]
         return v
+
+
+if __name__ == '__main__':
+    print(Config.parse('BertRCNN'))

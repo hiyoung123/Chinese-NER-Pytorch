@@ -11,19 +11,73 @@ from sklearn.metrics import accuracy_score, f1_score
 
 import torch
 from torch.utils.data import DataLoader
+from transformers import (
+    BertTokenizer, BertConfig, BertModel,
+    # XLNetTokenizer, XLNetConfig, XLNetModel,
+    # AlbertTokenizer, AlbertConfig, AlbertModel,
+)
+
+from .models import (
+    TextRNN, TextCNN, TextRCNN, DPCNN, FastText,
+    BertFCModel, BertRNN, BertCNN, BertRCNN
+)
+
+from .datasets import EmbeddingDataset, BertDataset, FastTextDataset
+from utils.log import Log
 
 
 MODEL_CLASSES = {
-
+    'TextCNN': (None, None, None, TextCNN, EmbeddingDataset),
+    'FastText': (None, None, None, FastText, FastTextDataset),
+    'TextRCNN': (None, None, None, TextRCNN, EmbeddingDataset),
+    'TextRNN': (None, None, None, TextRNN, EmbeddingDataset),
+    'DPCNN': (None, None, None, DPCNN, EmbeddingDataset),
+    'BertFC': (BertTokenizer, BertConfig, BertModel, BertFCModel, BertDataset),
+    'BertCNN': (BertTokenizer, BertConfig, BertModel,BertCNN, BertDataset),
+    'BertRNN': (BertTokenizer, BertConfig, BertModel,BertRNN, BertDataset),
+    'BertRCNN': (BertTokenizer, BertConfig, BertModel,BertRCNN, BertDataset),
+    # 'XLNetFC': (XLNetTokenizer, XLNetConfig, XLNetModel, BertFCModel, BertDataset),
+    # 'XLNetCNN': (XLNetTokenizer, XLNetConfig, XLNetModel, BertCNN, BertDataset),
+    # 'XLNetRNN': (XLNetTokenizer, XLNetConfig, XLNetModel, BertRNN, BertDataset),
+    # 'XLNetRCNN': (XLNetTokenizer, XLNetConfig, XLNetModel, BertRCNN, BertDataset),
+    # 'ALBertFC': (AlbertTokenizer, AlbertConfig, AlbertModel, BertFCModel, BertDataset),
+    # 'ALBertCNN': (AlbertTokenizer, AlbertConfig, AlbertModel, BertCNN, BertDataset),
+    # 'ALBertRNN': (AlbertTokenizer, AlbertConfig, AlbertModel, BertRNN, BertDataset),
+    # 'ALBertRCNN': (AlbertTokenizer, AlbertConfig, AlbertModel, BertRCNN, BertDataset),
 }
 
 
 class Evaluator:
     def __init__(self, config, model):
-        pass
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.model = model.to(self.device)
+        self.model = torch.load(config.model_path, map_location=self.device)
+        self.logger = Log()
 
     def evaluate(self, data):
-        pass
+        desc = '[Evaluate]'
+        batch_iterator = tqdm(data, desc=desc, ncols=100)
+        pre_list = []
+        label_list = []
+        logits_list = []
+        prob_list = []
+        with torch.no_grad():
+            self.model.eval()
+            for i, batch in enumerate(batch_iterator):
+                batch = {key: value.to(self.device) for key, value in batch.items()}
+                logits, prob = self.model(batch)
+                _, pre = torch.max(logits, 1)
+                pre_list += pre.cpu().numpy().tolist()
+                label_list += batch['label'].cpu().numpy().tolist()
+                logits_list += logits.cpu().numpy().tolist()
+                prob_list += prob.cpu().numpy().tolist()
+        result = {
+            'acc': accuracy_score(label_list, pre_list),
+            'f1': f1_score(label_list, pre_list, average='macro')
+        }
+        self.logger.info('Evaluate', 'evaluation score is %.4f' % result['acc'])
+        self.logger.info('Evaluate', 'evaluation f1 is %.4f' % result['f1'])
+        return result
 
 
 def set_seed(seed):
@@ -49,7 +103,7 @@ def build_embedding(config, vocab):
 
 def run_eval(config):
 
-    test = pd.read_csv(config.test_path)
+    dev = pd.read_csv(config.dev_path)
 
     set_seed(config.seed)
 
@@ -64,8 +118,8 @@ def run_eval(config):
         bert = bert_model.from_pretrained(config.pre_trained_model + '/pytorch_model.bin', config=bert_config)
         model = model(bert=bert, config=config)
 
-    test = dataset(test, tokenizer, config.max_seq_len, True)
-    test = DataLoader(test, batch_size=config.batch_size)
+    dev = dataset(dev, tokenizer, config.max_seq_len, True)
+    dev = DataLoader(dev, batch_size=config.batch_size)
     evaluator = Evaluator(config, model)
-    result = evaluator.evaluate(test)
+    result = evaluator.evaluate(dev)
     # print(acc)
